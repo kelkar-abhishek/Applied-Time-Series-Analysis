@@ -1,0 +1,268 @@
+---
+title: "ATSA Term Project"
+author: "AE14B051: Abhishek Kelkar"
+date: "30 November 2017"
+output: word_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown
+This chunck of code checks for the Granger causality using Sij statistic provided for the given dataset. But first we need to find the values a{ij}
+
+```{r Ahat}  
+Ahat <- function(Data,Order)
+{
+  # Read input arguments
+  Z = Data
+  P = Order
+    # Size of the data
+  Size = dim(Z)
+  N = Size[1]
+  M = Size[2]
+  # The regressor matrix
+  BigZ = {}
+  BigZ1 = {}
+  
+  for (k in 1:P){
+    BigZ = cbind(BigZ, Z[k:(N-P+k-1),])
+  }
+  
+  # Re-arrange the regressor matrix
+  for (j in 1:M){
+    BigZ1 = cbind(BigZ1,BigZ[,(seq(j,M*P,M))])
+  }
+  # The Y matrix   
+  Y = Z[(P+1):N,]
+  
+  # Regressors covariance matrix and its inverse
+  SigmaR = (t(BigZ1)%*%BigZ1)/N
+  invSigmaR = qr.solve(SigmaR)
+  
+  # Estimate VAR model coefficient matrices
+  Ahat = (qr.solve(t(BigZ1)%*%BigZ1)%*%t(BigZ1))%*%Y
+  
+  Amatrix = array(0,dim = c(M,M,P))
+  for (i in seq(1,P)){
+    Amatrix[,,i] = Ahat[((i-1)*M+1):(i*M),1:M]
+  }
+  return(Amatrix)
+}
+
+```
+The Vhat matrix function is provided before hand as follows
+```{r vhat}
+Vhat <- function(Data,Order)
+{
+  # Function to obtain V_ij matrix (P*P) from the estimate of covariance matrix (M^2P*M^2P) of
+  # VAR model coefficients
+  # Reference: Michael Eichler (2005) and Lutkepohl H (1993)
+  # Usage: [Vmat] = Vhat(Data, Order)
+  # Sudhakar Kathari, November 11, 2017.
+  
+  # Read input arguments
+  Z = Data
+  P = Order
+  
+  # Size of the data
+  Size = dim(Z)
+  N = Size[1]
+  M = Size[2]
+  
+  # The regressor matrix
+  
+  BigZ = {}
+  BigZ1 = {}
+  
+  for (k in 1:P){
+    BigZ = cbind(BigZ, Z[k:(N-P+k-1),])
+  }
+  
+  # Re-arrange the regressor matrix
+  for (j in 1:M){
+    BigZ1 = cbind(BigZ1,BigZ[,(seq(j,M*P,M))])
+  }
+  # The Y matrix   
+  Y = Z[(P+1):N,]
+  
+  # Regressors covariance matrix and its inverse
+  SigmaR = (t(BigZ1)%*%BigZ1)/N
+  invSigmaR = qr.solve(SigmaR)
+  
+  # Estimate VAR model coefficient matrices
+  Ahat = (qr.solve(t(BigZ1)%*%BigZ1)%*%t(BigZ1))%*%Y
+  
+  # Innovations covariance matrix
+  SigmaE = (1/(N-P))*t((Y-BigZ1%*%Ahat))%*%(Y-BigZ1%*%Ahat)
+  
+  # Covariance matrix of VAR model coefficients
+  SigmaA = kronecker(invSigmaR,SigmaE)
+  
+  
+  # Estimation of V matrix
+  Vmatrix = array(0,dim = c(P,P,M*M))
+  for (i in seq(1,M*M)){
+    Vmatrix[,,i] = SigmaA[((i-1)*P+1):(i*P),((i-1)*P+1):(i*P)]
+  }
+  return(Vmatrix)
+}
+```
+
+Thus we can identify the Granger causality in section A
+```{r Section A}
+zk<-load("G:/IIT MADRAS/SEMESTER 7/CH5350 Appllied Time Series Analysis/Causality Analysis Project/proj2017.RData")
+Vmatrix <- Vhat(Zk, 2)
+Amatrix <- Ahat(Zk, 2)
+
+M <- dim(Amatrix)[1]
+P <- dim(Amatrix)[3]
+s <- c()
+N = nrow(Zk) #no. of observations in data
+for (i in seq(1,M*M))
+{
+  aij <- c()
+  for (j in seq(1,P))
+  {
+    aij <- append(aij, Amatrix[,,j][i])
+  }
+  
+  sij <- N*matrix(aij, nrow = 1) %*% Vmatrix[,,i] %*% matrix(aij, ncol = 1)
+  s <- append(s, sij)
+}
+
+Smatrix <- matrix(s, nrow = M)
+Smatrix
+```
+
+The following code is for the section B to identify the direct pathway function for the given data-set Zk where N=2046 and M=3. The function below takes the A matrix from the VAR model which is of the order (MN \times MN) for all values of r and p is the order of the VAR model
+
+```{r Section B}
+Amatrix=Ahat(Zk,2)
+Dim=dim(Amatrix)
+sum<-dim(Amatrix)[1]
+I=diag(sum)
+w <- seq(0,pi,0.01)
+PSI <- array(0, dim = c(Dim[1],Dim[2],length(w)))
+  
+for(i in w){
+  Ar <- matrix(seq(0,0,length.out = Dim[1]^2), nrow = Dim[1])
+  for(j in c(1:Dim[3])){
+    Ar <- Ar + complex(1, cos(j*i), -sin(j*i)) * Amatrix[,,j]
+    }
+  Abarw=I-Ar
+  
+  hDij <- matrix(seq(0,0,length.out = Dim[1]^2), nrow = Dim[1])
+  for(k in 1:dim(Abarw)[1]){
+    for(l in 1:dim(Abarw)[1]){
+      if(k==l){
+        hDij[k,l] <- (det(Re(Abarw[-k,-l])))/det(Re(Abarw))
+      }
+      else{
+        hDij[k,l] <- (-Abarw[k,l] * det(Re(Abarw[-k,-l])))/det(Re(Abarw))
+      }
+    }
+  }
+  
+  PSIij <- matrix(seq(0,0,length.out = dim(Amatrix)[1]^2), nrow = dim(Amatrix)[1])
+  for (m in c(1:dim(Abarw)[1]))
+  {
+    for (n in c(1:dim(Abarw)[1]))
+    {
+      PSIij[m,n] <- hDij[m,n] / sqrt(sum(hDij[,n]))
+    }
+  }
+  
+PSI[,,i] = PSIij
+}
+
+DPF <- function(coeff_matrix, w)
+{
+  amat <- coeff_matrix
+  I <- diag(dim(amat)[1])
+}
+```
+
+
+Frequency domain analysis for Granger Stability 
+
+```{r Section C and D}
+freq_domain_test <- function(data, order)
+{
+  data <- data
+  order <- order
+  N <- dim(data)[1]
+  M <- dim(data)[2]
+  DFT <- fft(data)
+  
+  R <- c(1:10)
+  dpf_vector <- array(0, dim = c(M, M, 100, 10))
+  psidist <- array(0, dim = c(M*M, 10, 100))
+  zeta <- array(0, dim = c(M, M, 100))
+  
+  for (i in R)
+  {
+    ran <- runif(1,0,2*pi)
+    mod_DFT <- DFT* complex(real = cos(ran), imaginary = sin(ran))
+    
+    surrogate <- fft(mod_DFT, inverse = TRUE)
+    coeff_matrix <- Ahat(surrogate,order)
+    
+    dpf <- DPF(coeff_matrix, seq(0,2*pi, length.out = 100))
+    dpf_vector[,,,i] <- dpf
+    
+  }
+  for (i in 1:100){
+      for (j in 1:M){
+        for (k in 1:M){
+          zeta[j,k,i] <- quantile(dpf_vector[j,k,i,], probs = 0.95)
+        }
+      }
+    }
+  return(zeta)
+  
+}
+```
+
+With N=2000 observations and a given generating process we now test our code
+
+```{r Section E}
+N=2000
+I=diag(3)
+A1=matrix(c(0.3,0,0,0.6,0.4,0,0,0.4,0.5),nrow=3,ncol=3)
+A2=matrix(c(0.2,0,0,0,0.5,0,0,0.3,0.4),nrow=3,ncol=3)
+
+#m1=VARMAsim(2000, arlags=c(1,2), phi=cbind(phi1,phi2), sigma=sig)
+#d<- m1$series
+#p <- vars(d, ic="SC")
+```
+
+**Section F**
+When we run the frequency domain test function for Zk data-set from the given file proj2017.rdata, the following is obtained
+* The modulus value of the DPF is 37.96343
+ 
+```{r}
+det(Re(PSIij*Conj(PSIij)))*det(Re(PSIij*Conj(PSIij)))
+```
+
+* The frequency domain analysis gives the value of the zeta function to be 1
+* Since the modulus of the DPF is not greater than the zeta function, we can infer that z_j causes z_i
+* On the other hand, the time domain analysis using the Sij matrix leads to the following
+```{r}
+qchisq(Smatrix,0.95)
+```
+
+*Thus we fail to reject the null hypothesis and hence we can claim that j is the cause of i
+* Granger analysis results are consistent in time and frequency domain.
+
+* The Granger causality analysis across realizations*
+* Considering a physical view point, the cause and the effect should, ideally, remain same across multiple realizations and hence the Granger analysis should yield the same result.
+* Granger causality measures can be highly sensitive to variations in the estimated model parameters, particularly in the frequency domain, leading to spurious peaks and valleys and even negative values.
+* Causality measures are functions of the VAR system parameters and reflect a combination of dynamics from the different components of the system.
+*Granger causality estimates are independent of the receiver dynamics, they reflect a combination of the transmitter and channel dynamics.
+*Thus the answer can be expected to be invariant of the realizations. 
+
+**Section 2**
+The above functions are run for the data provided in Zk itself and the obtained results show that 
+Zk[2] Granger causes Zk[1].

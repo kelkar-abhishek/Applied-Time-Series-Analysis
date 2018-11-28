@@ -1,0 +1,66 @@
+---
+title: "ATSA Project"
+author: "Parth Shah CH14B084"
+date: "4 December 2016"
+output: word_document
+---
+###Question 1 (LSP)
+```{r}
+knitr::opts_chunk$set(echo = TRUE)
+Lomb_Scargle_periodogram<-function(data_set,plot){
+  library(MASS)
+  dmeaned = data_set$x-mean(data_set$x)
+  t=data_set$t
+  intervals=t[2:length(t)]-t[1:length(t)-1]
+  Nqf=1/(2*min(intervals))
+  omega_domain = seq(0,2*pi*Nqf,2*pi*Nqf/100)
+  
+  S_w<-function(w){
+  R=matrix(c(sum(cos(w*t)^2),sum(sin(w*t)*cos(w*t)),sum(sin(w*t)*cos(w*t)),sum(sin(w*t)^2)),nrow=2,ncol=2)
+  r=matrix(c(sum(cos(w*t)*dmeaned),sum(sin(w*t)*dmeaned)),nrow=2,ncol=1)
+  return (t(r)%*%(ginv(R))%*%r/(length(t)))}
+  ab<-function(w){
+    R=matrix(c(sum(cos(w*t)^2),sum(sin(w*t)*cos(w*t)),sum(sin(w*t)*cos(w*t)),sum(sin(w*t)^2)),nrow=2,ncol=2)
+    r=matrix(c(sum(cos(w*t)*dmeaned),sum(sin(w*t)*dmeaned)),nrow=2,ncol=1)
+    return (t(ginv(R)%*%r))
+    }
+  
+  S_ls=sapply(omega_domain,S_w)
+  AB=lapply(omega_domain,ab)
+  s=AB[[1]]
+  for (i in seq(2,length(AB))) s=rbind(s,AB[[i]])
+  ab_frame=data.frame(s)
+  colnames(ab_frame)<-c('a','b')
+  if(plot==1) plot(omega_domain,S_ls,'h')
+  return (cbind(data.frame(S_ls,omega_domain),ab_frame))
+}
+#Creating Data
+a=10*sin(2*pi*10*seq(0,499*0.02,0.02))+10*sin(2*pi*17*seq(0,499*0.02,0.02))+10*sin(2*pi*17.5*seq(0,499*0.02,0.02))
+A=data.frame(x=a,t=0.02*seq(0,499))
+lis=lapply(seq(450,100,-50),function(x) A[sort(sample(seq(1,500),x)),])
+for (i in seq(1,8)){lis[[i]]$x=lis[[i]]$x+rnorm(length(lis[[i]]$x),mean=0, sd=(var(lis[[i]]$x)/100)^0.5)}
+
+#Finding R-squared
+R_squared<-function(y){
+p=Lomb_Scargle_periodogram(y,plot=0)
+sub=p[which(p$S_ls>25),c(2,3,4)]
+pred=rep(0,length(y$t))
+for (i in seq(1,length(sub$omega_domain))){pred=pred+sub[i,2]*cos(sub[i,1]*y$t)+sub[i,3]*sin(sub[i,1]*y$t)}
+return (1-sum((y$x-pred-mean(y$x))^2)/sum((y$x-mean(y$x))^2))
+}
+
+Rm=sapply(lis,R_squared)
+Unknown_percentage=seq(10,80,10)
+plot(Unknown_percentage,Rm,'l',main="Lomb-Scargle periodogram:Rm vs missing data percentage")
+
+```
+
+```{r}
+prediction<-function(y){
+p=Lomb_Scargle_periodogram(y,plot=0)
+sub=p[which(p$S_ls>20000),c(2,3,4)]
+pred=rep(0,length(y$t))
+for (i in seq(1,length(sub$omega_domain))){pred=pred+sub[i,2]*cos(sub[i,1]*y$t)+sub[i,3]*sin(sub[i,1]*y$t)}
+return (pred+mean(y$x))
+}
+```
